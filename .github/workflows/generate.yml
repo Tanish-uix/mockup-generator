@@ -28,7 +28,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests pillow
+        run: pip install huggingface_hub pillow
 
       - name: Run mockup generation
         env:
