@@ -28,11 +28,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install huggingface_hub pillow
+        run: pip install requests pillow
 
       - name: Run mockup generation
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SELECTED_TYPES: ${{ inputs.selected_types }}
           LOGO_BASE64: ${{ inputs.logo_base64 }}
         run: python scripts/generate.py
