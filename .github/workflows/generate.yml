@@ -39,9 +39,11 @@ jobs:
 
       - name: Create release tag
         id: tag
+        if: always()
         run: echo "tag=run-$(date +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
 
       - name: Upload results to a GitHub Release
+        if: always()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
