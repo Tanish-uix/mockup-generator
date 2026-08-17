@@ -10,6 +10,7 @@ What it does, step by step:
    b. Sends the PROMPT text to Hugging Face's Inference Providers to generate a background image
    c. Pastes your logo on top of that background at the PLACEMENT coordinates from the template
    d. Saves the final image into outputs/
+   If one mockup type fails (e.g. hits a credit limit), it's skipped and the rest continue.
 4. GitHub Actions (not this script) then uploads everything in outputs/ to a Release.
 
 Environment variables this script expects (all set by the GitHub Actions workflow):
@@ -27,7 +28,7 @@ from PIL import Image
 from huggingface_hub import InferenceClient
 from huggingface_hub.errors import HfHubHTTPError
 
-HF_MODEL = "black-forest-labs/FLUX.1-dev"
+HF_MODEL = "black-forest-labs/FLUX.1-schnell"
 CONFIG_PATH = "config/mockup-types.json"
 OUTPUT_DIR = "outputs"
 
@@ -117,15 +118,21 @@ def main():
         mockup_info = type_lookup[type_id]
         print(f"Generating: {mockup_info['label']}...")
 
-        prompt, placement = load_prompt_template(mockup_info["prompt_file"])
-        background = generate_background(prompt, hf_token)
-        final_image = composite_logo(background, logo, placement)
+        try:
+            prompt, placement = load_prompt_template(mockup_info["prompt_file"])
+            background = generate_background(prompt, hf_token)
+            final_image = composite_logo(background, logo, placement)
 
-        output_path = os.path.join(OUTPUT_DIR, f"{type_id}.png")
-        final_image.save(output_path)
-        print(f"Saved: {output_path}")
+            output_path = os.path.join(OUTPUT_DIR, f"{type_id}.png")
+            final_image.save(output_path)
+            print(f"Saved: {output_path}")
+        except Exception as e:
+            # Don't let one failed mockup (e.g. hit a credit limit) take down the
+            # whole run - keep whatever succeeded and report what didn't at the end.
+            print(f"FAILED to generate {mockup_info['label']}: {e}")
+            continue
 
-    print("Done. All requested mockups generated.")
+    print("Done. Finished processing all requested mockup types.")
 
 
 if __name__ == "__main__":
