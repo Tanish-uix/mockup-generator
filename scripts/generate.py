@@ -7,7 +7,7 @@ What it does, step by step:
 2. Reads your logo (decoded from base64, passed in as an env var).
 3. For each selected mockup type:
    a. Reads the prompt template file (prompts/mockup-types/<id>.md)
-   b. Sends the PROMPT text to Hugging Face's free Inference API to generate a background image
+   b. Sends the PROMPT text to Hugging Face's Inference Providers to generate a background image
    c. Pastes your logo on top of that background at the PLACEMENT coordinates from the template
    d. Saves the final image into outputs/
 4. GitHub Actions (not this script) then uploads everything in outputs/ to a Release.
@@ -23,10 +23,11 @@ import re
 import io
 import base64
 import time
-import requests
 from PIL import Image
+from huggingface_hub import InferenceClient
+from huggingface_hub.errors import HfHubHTTPError
 
-HF_MODEL_URL = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
+HF_MODEL = "black-forest-labs/FLUX.1-dev"
 CONFIG_PATH = "config/mockup-types.json"
 OUTPUT_DIR = "outputs"
 
@@ -52,23 +53,23 @@ def load_prompt_template(path):
 
 
 def generate_background(prompt, hf_token, retries=3):
-    headers = {"Authorization": f"Bearer {hf_token}"}
-    payload = {"inputs": prompt}
+    client = InferenceClient(api_key=hf_token)
 
     for attempt in range(retries):
-        response = requests.post(HF_MODEL_URL, headers=headers, json=payload, timeout=120)
-
-        if response.status_code == 200:
-            return Image.open(io.BytesIO(response.content)).convert("RGBA")
-
-        # Model still loading on Hugging Face's side - wait and retry
-        if response.status_code == 503:
-            wait_time = 20
-            print(f"Model loading, waiting {wait_time}s before retry ({attempt + 1}/{retries})...")
-            time.sleep(wait_time)
-            continue
-
-        raise RuntimeError(f"Hugging Face API error {response.status_code}: {response.text}")
+        try:
+            # Hugging Face auto-routes to whichever partner provider currently
+            # serves this model, instead of us hardcoding one endpoint.
+            image = client.text_to_image(prompt, model=HF_MODEL)
+            return image.convert("RGBA")
+        except HfHubHTTPError as e:
+            status = getattr(e.response, "status_code", None)
+            # Model warming up on the provider's side - wait and retry
+            if status == 503:
+                wait_time = 20
+                print(f"Model loading, waiting {wait_time}s before retry ({attempt + 1}/{retries})...")
+                time.sleep(wait_time)
+                continue
+            raise RuntimeError(f"Hugging Face API error: {e}") from e
 
     raise RuntimeError("Model did not become ready in time. Try running the workflow again.")
 
