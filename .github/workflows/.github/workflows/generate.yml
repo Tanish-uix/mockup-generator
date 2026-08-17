@@ -1,0 +1,49 @@
+name: Generate Mockups
+
+# This workflow can be triggered two ways:
+# 1. Manually from the "Actions" tab on GitHub (you'll see a form with these inputs)
+# 2. Via the frontend page, which calls GitHub's API and passes the same inputs
+on:
+  workflow_dispatch:
+    inputs:
+      selected_types:
+        description: "Comma-separated mockup type ids (e.g. mug,tshirt)"
+        required: true
+        type: string
+      logo_base64:
+        description: "Your logo image, encoded as base64 text"
+        required: true
+        type: string
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests pillow
+
+      - name: Run mockup generation
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SELECTED_TYPES: ${{ inputs.selected_types }}
+          LOGO_BASE64: ${{ inputs.logo_base64 }}
+        run: python scripts/generate.py
+
+      - name: Create release tag
+        id: tag
+        run: echo "tag=run-$(date +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload results to a GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Mockups - ${{ steps.tag.outputs.tag }}"
+          files: outputs/*.png
