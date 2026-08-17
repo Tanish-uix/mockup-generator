@@ -1,0 +1,24 @@
+{
+  "mockup_types": [
+    {
+      "id": "mug",
+      "label": "Coffee Mug",
+      "prompt_file": "prompts/mockup-types/mug.md"
+    },
+    {
+      "id": "tshirt",
+      "label": "T-Shirt",
+      "prompt_file": "prompts/mockup-types/tshirt.md"
+    },
+    {
+      "id": "signage",
+      "label": "Storefront Signage",
+      "prompt_file": "prompts/mockup-types/signage.md"
+    },
+    {
+      "id": "business_card",
+      "label": "Business Card",
+      "prompt_file": "prompts/mockup-types/business_card.md"
+    }
+  ]
+}
