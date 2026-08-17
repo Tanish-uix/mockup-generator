@@ -26,7 +26,7 @@ import time
 import requests
 from PIL import Image
 
-HF_MODEL_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+HF_MODEL_URL = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
 CONFIG_PATH = "config/mockup-types.json"
 OUTPUT_DIR = "outputs"
 
