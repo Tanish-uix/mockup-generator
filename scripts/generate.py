@@ -7,14 +7,15 @@ What it does, step by step:
 2. Reads your logo (decoded from base64, passed in as an env var).
 3. For each selected mockup type:
    a. Reads the prompt template file (prompts/mockup-types/<id>.md)
-   b. Sends the PROMPT text to Hugging Face's Inference Providers to generate a background image
+   b. Sends the PROMPT text to Gemini 2.5 Flash Image ("Nano Banana") to generate a
+      background image - this is Google's free-tier image model (500 requests/day free).
    c. Pastes your logo on top of that background at the PLACEMENT coordinates from the template
    d. Saves the final image into outputs/
-   If one mockup type fails (e.g. hits a credit limit), it's skipped and the rest continue.
+   If one mockup type fails (e.g. hits a rate limit), it's skipped and the rest continue.
 4. GitHub Actions (not this script) then uploads everything in outputs/ to a Release.
 
 Environment variables this script expects (all set by the GitHub Actions workflow):
-  HF_TOKEN         - your Hugging Face API token (stored as a GitHub secret)
+  GEMINI_API_KEY   - your Gemini API key (stored as a GitHub secret)
   SELECTED_TYPES    - comma-separated mockup ids, e.g. "mug,tshirt"
   LOGO_BASE64        - your logo image encoded as base64 text
 """
@@ -24,11 +25,12 @@ import re
 import io
 import base64
 import time
+import json
+import requests
 from PIL import Image
-from huggingface_hub import InferenceClient
-from huggingface_hub.errors import HfHubHTTPError
 
-HF_MODEL = "black-forest-labs/FLUX.1-schnell"
+GEMINI_MODEL = "gemini-2.5-flash-image"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 CONFIG_PATH = "config/mockup-types.json"
 OUTPUT_DIR = "outputs"
 
@@ -53,26 +55,37 @@ def load_prompt_template(path):
     return prompt, placement
 
 
-def generate_background(prompt, hf_token, retries=3):
-    client = InferenceClient(api_key=hf_token)
+def generate_background(prompt, api_key, retries=3):
+    headers = {"Content-Type": "application/json"}
+    params = {"key": api_key}
+    payload = {
+        "contents": [
+            {"parts": [{"text": prompt}]}
+        ]
+    }
 
     for attempt in range(retries):
-        try:
-            # Hugging Face auto-routes to whichever partner provider currently
-            # serves this model, instead of us hardcoding one endpoint.
-            image = client.text_to_image(prompt, model=HF_MODEL)
-            return image.convert("RGBA")
-        except HfHubHTTPError as e:
-            status = getattr(e.response, "status_code", None)
-            # Model warming up on the provider's side - wait and retry
-            if status == 503:
-                wait_time = 20
-                print(f"Model loading, waiting {wait_time}s before retry ({attempt + 1}/{retries})...")
-                time.sleep(wait_time)
-                continue
-            raise RuntimeError(f"Hugging Face API error: {e}") from e
+        response = requests.post(GEMINI_URL, headers=headers, params=params, json=payload, timeout=120)
 
-    raise RuntimeError("Model did not become ready in time. Try running the workflow again.")
+        if response.status_code == 200:
+            data = response.json()
+            parts = data["candidates"][0]["content"]["parts"]
+            for part in parts:
+                if "inlineData" in part:
+                    image_bytes = base64.b64decode(part["inlineData"]["data"])
+                    return Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+            raise RuntimeError(f"Gemini response had no image data: {json.dumps(data)[:500]}")
+
+        # Rate limited or model temporarily overloaded - wait and retry
+        if response.status_code in (429, 503):
+            wait_time = 20
+            print(f"Gemini busy (status {response.status_code}), waiting {wait_time}s before retry ({attempt + 1}/{retries})...")
+            time.sleep(wait_time)
+            continue
+
+        raise RuntimeError(f"Gemini API error {response.status_code}: {response.text[:500]}")
+
+    raise RuntimeError("Gemini did not respond successfully in time. Try running the workflow again.")
 
 
 def composite_logo(background, logo, placement):
@@ -94,7 +107,7 @@ def composite_logo(background, logo, placement):
 
 
 def main():
-    hf_token = os.environ["HF_TOKEN"]
+    api_key = os.environ["GEMINI_API_KEY"]
     selected_types = os.environ["SELECTED_TYPES"].split(",")
     logo_base64 = os.environ["LOGO_BASE64"]
 
@@ -104,7 +117,6 @@ def main():
     logo = Image.open(io.BytesIO(logo_bytes)).convert("RGBA")
 
     with open(CONFIG_PATH, "r") as f:
-        import json
         config = json.load(f)
 
     type_lookup = {t["id"]: t for t in config["mockup_types"]}
@@ -120,14 +132,14 @@ def main():
 
         try:
             prompt, placement = load_prompt_template(mockup_info["prompt_file"])
-            background = generate_background(prompt, hf_token)
+            background = generate_background(prompt, api_key)
             final_image = composite_logo(background, logo, placement)
 
             output_path = os.path.join(OUTPUT_DIR, f"{type_id}.png")
             final_image.save(output_path)
             print(f"Saved: {output_path}")
         except Exception as e:
-            # Don't let one failed mockup (e.g. hit a credit limit) take down the
+            # Don't let one failed mockup (e.g. hit a rate limit) take down the
             # whole run - keep whatever succeeded and report what didn't at the end.
             print(f"FAILED to generate {mockup_info['label']}: {e}")
             continue
