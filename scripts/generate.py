@@ -76,10 +76,12 @@ def generate_background(prompt, api_key, retries=3):
                     return Image.open(io.BytesIO(image_bytes)).convert("RGBA")
             raise RuntimeError(f"Gemini response had no image data: {json.dumps(data)[:500]}")
 
-        # Rate limited or model temporarily overloaded - wait and retry
+        # Rate limited or model temporarily overloaded - wait and retry.
+        # Print the actual response body so we can see Google's real error message.
         if response.status_code in (429, 503):
             wait_time = 20
-            print(f"Gemini busy (status {response.status_code}), waiting {wait_time}s before retry ({attempt + 1}/{retries})...")
+            print(f"Gemini busy (status {response.status_code}): {response.text[:500]}")
+            print(f"Waiting {wait_time}s before retry ({attempt + 1}/{retries})...")
             time.sleep(wait_time)
             continue
 
